@@ -15,6 +15,7 @@ class RaftNode:
     ELECTION_TIMEOUT_MIN = 2
     ELECTION_TIMEOUT_MAX = 3
     RPC_TIMEOUT          = 0.5
+    REQUEST_TIMEOUT      = 0.5
 
     class NodeType(Enum):
         LEADER    = 1
@@ -122,10 +123,9 @@ class RaftNode:
         while response["status"] != "success":
             redirected_addr = Address(response["address"]["ip"], response["address"]["port"])
             response        = self.__send_request(self.address, "apply_membership", redirected_addr)
-        self.log                 = response["log"]
 
-        for addr in response["cluster_addr_list"]:
-            self.cluster_addr_list.append(Address(addr["ip"], addr["port"]))
+        self.log                 = response["log"]
+        self.cluster_addr_list   = list(map(lambda addr: Address(addr["ip"], addr["port"]), response["cluster_addr_list"]))
         self.cluster_leader_addr = redirected_addr
 
         self.__initialize_as_follower()
@@ -137,6 +137,7 @@ class RaftNode:
         rpc_function = getattr(node, rpc_name)
         response     = json.loads(rpc_function(json_request))
         self.__print_log(response)
+        # await asyncio.sleep(RaftNode.REQUEST_TIMEOUT)
         return response
     
     def __send_vote_request(self):
@@ -154,6 +155,7 @@ class RaftNode:
                         self.votes += 1
                 except socket.timeout:
                     self.__print_log(f"Node {addr} is not responding")
+                    self.cluster_addr_list.remove(addr)
         
         if self.votes >= len(self.cluster_addr_list) // 2 + 1:
             self.__initialize_as_leader()
@@ -171,7 +173,9 @@ class RaftNode:
         if self.type == RaftNode.NodeType.LEADER:
             self.__print_log("[Leader] Received request for membership")
             self.__print_log(f"[Leader] Adding node {request} to cluster")
-            self.cluster_addr_list.append(Address(request["ip"], request["port"]))
+            addr = Address(request["ip"], request["port"])
+            if addr not in self.cluster_addr_list:
+                self.cluster_addr_list.append(addr)
             response = {
                 "status": "success",
                 "log": self.log,
@@ -194,25 +198,27 @@ class RaftNode:
     def announce_as_leader(self, json_request: str) -> "json":
         request = json.loads(json_request)
         # TODO : Implement leader_announce
-        if self.type == RaftNode.NodeType.LEADER:
-            self.__print_log("[Leader] Received leader announcement")
+        if self.type == RaftNode.NodeType.CANDIDATE:
+            self.__print_log("[Candidate] Received leader announcement")
             if self.election_term <= request["election_term"]:
-                self.__print_log(f"[Leader] Demoting self to follower")
+                self.__print_log(f"[Candidate] Demoting self to follower")
                 response = {
                     "status": "success",
                 }
                 self.__initialize_as_follower()
                 self.cluster_leader_addr = Address(request["ip"], request["port"])
-                self.cluster_addr_list   = request["cluster_addr_list"]
+                self.cluster_addr_list   = list(map(lambda addr: Address(addr["ip"], addr["port"]), request["cluster_addr_list"]))
                 self.log                 = request["log"]
             else:
-                self.__print_log(f"[Leader] Ignoring leader announcement from {request}")
+                self.__print_log(f"[Candidate] Ignoring leader announcement from {request}")
                 response = {
                     "status": "failure",
                 }
         else:
             self.__print_log(f"[Follower] Received leader announcement from {request}")
-            self.cluster_leader_addr = Address(request["ip"], request["port"])
+            self.cluster_addr_list   = []
+            self.cluster_addr_list   = list(map(lambda addr: Address(addr["ip"], addr["port"]), request["cluster_addr_list"]))
+            self.log                 = request["log"]
             response = {
                 "status": "success",
             }
