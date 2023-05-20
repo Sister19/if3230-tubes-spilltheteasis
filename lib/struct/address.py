@@ -10,8 +10,8 @@ class Address(dict):
     def __iter__(self):
         return iter((self.ip, self.port))
     
-    def __eq__(self, other):
+    def __eq__(self, other: "Address"):
         return self.ip == other.ip and self.port == other.port
     
-    def __ne__(self, other):
+    def __ne__(self, other: "Address"):
         return self.ip != other.ip or self.port != other.port
