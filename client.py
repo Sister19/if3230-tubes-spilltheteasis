@@ -3,6 +3,7 @@ from lib.raft               import RaftNode
 from xmlrpc.server          import SimpleXMLRPCServer
 import sys
 import xmlrpc.client
+import json
 # from app           import MessageQueue
 
 def start_communication(addr: Address, contact_node_addr: Address):
@@ -11,13 +12,12 @@ def start_communication(addr: Address, contact_node_addr: Address):
 
     while True:
         command = input('Command:')
-        message = command[7]
-        
-        if command[:4] == 'queue':
-            server.push(message)
-        elif command[:4] == 'dequeue':
-            popped_elmt = server.pop()
-            print(f'Popped element: {popped_elmt}')
+        request = {
+            'node_id': addr,
+            'command': command,
+        }
+        response = server.on_request_broadcast_msg(json.dumps(request))
+        print(response)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
