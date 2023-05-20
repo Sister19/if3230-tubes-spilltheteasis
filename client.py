@@ -1,6 +1,6 @@
-from lib.struct.address       import Address
-from lib.raft          import RaftNode
-from xmlrpc.server import SimpleXMLRPCServer
+from lib.struct.address     import Address
+from lib.raft               import RaftNode
+from xmlrpc.server          import SimpleXMLRPCServer
 import sys
 import xmlrpc.client
 # from app           import MessageQueue
@@ -8,6 +8,16 @@ import xmlrpc.client
 def start_communication(addr: Address, contact_node_addr: Address):
     print(f'client: start communicating to server {addr} from {contact_node_addr}')
     server = xmlrpc.client.ServerProxy(f'http://{addr.ip}:{addr.port}')
+
+    while True:
+        command = input('Command:')
+        message = command[7]
+        
+        if command[:4] == 'queue':
+            server.push(message)
+        elif command[:4] == 'dequeue':
+            popped_elmt = server.pop()
+            print(f'Popped element: {popped_elmt}')
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
