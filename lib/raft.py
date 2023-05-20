@@ -108,7 +108,6 @@ class RaftNode:
         self.current_election_timeout = self.__election_timeout()
         while self.type == RaftNode.NodeType.FOLLOWER:
             self.heartbeat_timer += RaftNode.HEARTBEAT_INTERVAL
-            print(self.cluster_addr_list)
             if self.heartbeat_timer >= self.current_election_timeout:
                 self.__print_log("Election timeout")
                 self.__iniitialize_as_candidate()
@@ -117,20 +116,19 @@ class RaftNode:
 
     def __try_to_apply_membership(self, contact_addr: Address):
         redirected_addr = contact_addr
-        response = {
-            "status": "redirected",
-            "address": {
-                "ip":   contact_addr.ip,
-                "port": contact_addr.port,
-            }
-        }
-        while response["status"] != "success":
+        response = self.__send_request(self.address, "apply_membership", redirected_addr)
+
+        while response is None or response["status"] != "success":
             redirected_addr = Address(response["address"]["ip"], response["address"]["port"])
             response        = self.__send_request(self.address, "apply_membership", redirected_addr)
 
         self.log                 = response["log"]
         self.cluster_addr_list   = list(map(lambda addr: Address(addr["ip"], addr["port"]), response["cluster_addr_list"]))
         self.cluster_leader_addr = redirected_addr
+
+        for addr in self.cluster_addr_list:
+            if addr != self.address and addr != self.cluster_leader_addr:
+                self.__send_request(self.address, "announce_new_member", redirected_addr)
 
         self.__initialize_as_follower()
 
@@ -143,7 +141,8 @@ class RaftNode:
             response     = json.loads(rpc_function(json_request))
             self.__print_log(response)
             return response
-        except:
+        except Exception as e:
+            self.__print_log(f"Erorr: {e}")
             self.__print_log(f"Failed to send request to {addr}")
         
     
@@ -182,6 +181,7 @@ class RaftNode:
             addr = Address(request["ip"], request["port"])
             if addr not in self.cluster_addr_list:
                 self.cluster_addr_list.append(addr)
+            
             response = {
                 "status": "success",
                 "log": self.log,
@@ -198,6 +198,17 @@ class RaftNode:
                 }
             }
         
+        return json.dumps(response)
+    
+    def announce_new_member(self, json_request: str) -> "json":
+        request = json.loads(json_request)
+        self.__print_log(f"Received announcement from {request['ip']}:{request['port']}")
+        addr = Address(request["ip"], request["port"])
+        if addr not in self.cluster_addr_list:
+            self.cluster_addr_list.append(addr)
+        response = {
+            "status": "success",
+        }
         return json.dumps(response)
 
     # Inter-node RPCs for leader announcement
