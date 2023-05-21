@@ -2,21 +2,31 @@ from lib.struct.address     import Address
 from lib.raft               import RaftNode
 from xmlrpc.server          import SimpleXMLRPCServer
 import sys
-import xmlrpc.client
+from xmlrpc.client          import ServerProxy
 import json
+import time
 # from app           import MessageQueue
 
 def start_communication(addr: Address, contact_node_addr: Address):
-    print(f'client: start communicating to server {addr} from {contact_node_addr}')
-    server = xmlrpc.client.ServerProxy(f'http://{addr.ip}:{addr.port}')
+    print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] start communicating to server {contact_node_addr}")
+    server = ServerProxy(f'http://{contact_node_addr.ip}:{contact_node_addr.port}')
 
     while True:
-        command = input('Command:')
+        command = input('Command: ')
+        
+        if command == 'exit':
+            exit()
+        if command == 'help':
+            print('Commands: exit, help, get, put, delete, list') 
+
         request = {
             'node_id': addr,
             'command': command,
         }
-        response = server.on_request_broadcast_msg(json.dumps(request))
+        print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Start sending commands to server")
+
+        response = server.execute(request)
+
         print(response)
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
-from lib.struct.address       import Address
-from lib.raft          import RaftNode
-from xmlrpc.server import SimpleXMLRPCServer
-from lib.app           import MessageQueue
+from lib.struct.address         import Address
+from lib.raft                   import RaftNode
+from xmlrpc.server              import SimpleXMLRPCServer
+from lib.app                    import MessageQueue
 import sys
 
 
