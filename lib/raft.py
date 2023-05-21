@@ -136,7 +136,7 @@ class RaftNode:
                 if self.cluster_leader_addr is None:
                     self.__print_log("Election timeout, new leader not found. Start new election...")
                     timeout_election = True
-                    self.election_timer = 0
+                    self.__cancel_election_timer()
                     self.__initialize_as_candidate()
                     self.__print_log("Start leader election...")
                     self.__vote_request()
@@ -286,8 +286,9 @@ class RaftNode:
     # Inter-node RPCs for leader announcement
     def announce_as_leader(self, json_request: str) -> "json":
         request = json.loads(json_request)
-        self.__print_log(f"Received leader announcement from {request['ip']}:{request['port']}")
-        self.cluster_leader_addr    = Address(request["ip"], request["port"])
+        leader_addr = Address(request["cluster_leader_addr"]["ip"], request["cluster_leader_addr"]["port"])
+        self.__print_log(f"Received leader announcement from {leader_addr}")
+        self.cluster_leader_addr    = leader_addr
         self.cluster_addr_list      = list(map(lambda addr: Address(addr["ip"], addr["port"]), request["cluster_addr_list"]))
         self.log                    = request["log"]
         self.type                   = RaftNode.NodeType.FOLLOWER
