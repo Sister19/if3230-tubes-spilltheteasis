@@ -19,13 +19,14 @@ class RaftNode:
     HEARTBEAT_TIMEOUT_MIN   = 9
     HEARTBEAT_TIMEOUT_MAX   = 18
     RPC_TIMEOUT             = 0.5
+    LOG_MSG_IDX   = 0
+    LOG_TERM_IDX  = 1
 
     class NodeType(Enum):
         LEADER    = 1
         CANDIDATE = 2
         FOLLOWER  = 3
-        LOG_MSG_IDX   = 0
-        LOG_TERM_IDX  = 1
+        
 
     def __init__(self, application : Any, addr: Address, contact_addr: Address = None):
         # Address Info
@@ -58,13 +59,14 @@ class RaftNode:
         self.app:                 MessageQueue          = application
 
         self.sent_length:         List[Address, int]    = []
-        self.acked_length:        int                   = 0
+        self.acked_length:        List[Address, int]    = []
         self.commit_length:       int                   = 0
 
         if contact_addr is None:
             self.log = [['enqueue(5)', 0]]
             self.cluster_addr_list.append(self.address)
             self.sent_length.append([self.address, 0])
+            self.acked_length.append([self.address, 0])
             self.__initialize_as_leader()
         else:
             self.__try_to_apply_membership(contact_addr)
@@ -87,7 +89,7 @@ class RaftNode:
         for addr in self.cluster_addr_list:
             if addr != self.address:
                 try:
-                    self.__send_request(request, "announce_as_leader", addr)
+                    Thread(target=self.__send_request, args=[request, "announce_as_leader", addr]).start()
                 except:
                     self.__print_log(f"Failed to send announce_as_leader request to {addr}")
 
@@ -207,6 +209,7 @@ class RaftNode:
                 self.__print_log("Heartbeat not received")
                 self.__initialize_as_candidate()
                 return
+            self.__print_log(f'[Follower] {self.log}')
             await asyncio.sleep(RaftNode.HEARTBEAT_INTERVAL)
     
     def __heartbeat_timeout(self):
@@ -225,12 +228,14 @@ class RaftNode:
         self.cluster_leader_addr = redirected_addr
 
         self.sent_length.append([self.address, 0])
+        self.acked_length.append([self.address, 0])
 
-        for addr in self.cluster_addr_list:
+        for (i, addr) in enumerate(self.cluster_addr_list):
             if addr != self.address and addr != self.cluster_leader_addr:
-                self.sent_length.append([addr, 0])
-                self.__send_request(self.address, "announce_new_member", addr)
-                print(f"Announce new member to {addr}")
+                self.sent_length.append([addr, response["sent_length"][i]])
+                self.acked_length.append([addr, response["acked_length"][i]])
+                Thread(target=self.__send_request, args=[self.address, "announce_new_member", addr]).start()
+                # print(f"Announce new member to {addr}")
 
         self.__initialize_as_follower()
 
@@ -257,11 +262,14 @@ class RaftNode:
             if addr not in self.cluster_addr_list:
                 self.cluster_addr_list.append(addr)
                 self.sent_length.append([addr, 0])
+                self.acked_length.append([addr, 0])
             
             response = {
                 "status": "success",
                 "log": self.log,
-                "cluster_addr_list": self.cluster_addr_list
+                "cluster_addr_list": self.cluster_addr_list,
+                "sent_length": self.sent_length,
+                "acked_length": self.acked_length
             }
         else:
             self.__print_log("[Follower] Received request for membership")
@@ -286,6 +294,7 @@ class RaftNode:
             self.__print_log(f"Adding node {addr} to cluster")
             self.cluster_addr_list.append(addr)
             self.sent_length.append([addr, 0])
+            self.acked_length.append([addr, 0])
 
         response = {
             "status": "success",
@@ -310,7 +319,7 @@ class RaftNode:
     # Inter-node RPCs for heartbeat
     def heartbeat(self, json_request: str) -> "json":
         # TODO: Implement heartbeat
-        print(f'json request: {json_request}')
+        # print(f'json request: {json_request}')
         json_request = json.loads(json_request)
         response = {
             "heartbeat_response": "success",
@@ -339,8 +348,8 @@ class RaftNode:
             "election_term": self.election_term,
         }
 
-        print(f'leader election term: {self.election_term}')
-        print(f'candidate election term: {request["election_term"]}')
+        # print(f'leader election term: {self.election_term}')
+        # print(f'candidate election term: {request["election_term"]}')
 
         if request["election_term"] > self.election_term:
             self.election_term  = request["election_term"]
@@ -383,7 +392,7 @@ class RaftNode:
 
         # response = { "result": result }
 
-        response = self.on_request_broadcast_msg(json_request)
+        response = self.broadcast_msg(json_request)
         
         return json.dumps(response)
     
@@ -412,7 +421,7 @@ class RaftNode:
 
         return json.dumps(response)
     
-    def on_request_broadcast_msg(self, json_request: str) -> "json":
+    def broadcast_msg(self, json_request: str) -> "json":
         request = json.loads(json_request)
         node_id = request["node_id"]
         msg     = request["msg"]
@@ -421,7 +430,13 @@ class RaftNode:
             self.__print_log(f"[Leader] Broadcasting request to all nodes")
             # append the record (msg, term) to the log
             self.log.append((msg, self.election_term))
-            self.acked_length[node_id] = len(self.log)
+            idx = [i for i in range(len(self.sent_length)) if self.sent_length[i][0] == node_id]
+            # print(f"idx: {idx}")
+            if idx is None:
+                self.acked_length.append([node_id, len(self.log)])
+            else:
+                idx = idx[0]
+                self.acked_length[idx] = len(self.log)
             
             for follower in self.cluster_addr_list:
                 if follower != self.address:
@@ -447,7 +462,7 @@ class RaftNode:
     
     def replicate_log(self, leader_id: Address, follower_id: Address):
         # if (self.type == RaftNode.NodeType.LEADER):
-        print('masuk replicate log')
+        # print('masuk replicate log')
         # find sent_length with address follower_id
         idx = [i for i in range(len(self.sent_length)) if self.sent_length[i][0] == follower_id][0]
         prefix_len = self.sent_length[idx][1]
@@ -467,29 +482,48 @@ class RaftNode:
             # e number of log entries that have been committed
             "suffix": suffix,
         }
-        print('before on receiving---------------')
-        self.__send_request(request, "log_request", follower_id)
+        # print('before on receiving---------------')
+        Thread(target=self.__send_request, args=[request, "log_request", follower_id]).start()
             
     def log_response(self, json_request: str) -> "json":
+        # print('masuk log response -------------------')
         request = json.loads(json_request)
         follower = request["node_id"]
+        follower = Address(follower['ip'], follower['port'])
         term = request["current_term"]
         ack = request["ack"]
         success = request["success"]
-        
+        # print('before if')
         if term == self.election_term and self.type == RaftNode.NodeType.LEADER:
-            if success and ack >= self.acked_length[follower]:
-                self.sent_length[follower] = ack
-                self.acked_length[follower] = ack
+            # print('masuk if')
+            # print(f'follower: {follower}')
+            # print(f'self.acked_length: {self.acked_length}')
+            # find item in self.acked_length where address is follower
+            # self.acked_length[i][0] get the address
+            followerIdx = [i for i in range(len(self.acked_length)) if self.acked_length[i][0] == follower][0]
+            # if followerIdx is None:
+            #     pass
+            # else:
+            #     followerIdx = followerIdx[0]
+            # print(f'follower idx: {followerIdx}')
+            if success and ack >= self.acked_length[followerIdx][1]:
+                self.sent_length[followerIdx][1] = ack
+                self.acked_length[followerIdx][1] = ack
+                # print('before commit log entries')
                 self.commit_log_entries()
-            elif self.sent_length[follower] > 0:
-                self.sent_length[follower] = self.sent_length[follower] - 1
+            elif self.sent_length[followerIdx][1] > 0:
+                self.sent_length[followerIdx][1] = self.sent_length[followerIdx][1] - 1
+                # print('before replicate log')
                 self.replicate_log(self.address, follower)
         elif term > self.election_term:
             self.election_term = term
             self.type = RaftNode.NodeType.FOLLOWER
             self.voted_for = None
+            # print('follower term is bigger than leader term')
             self.__cancel_election_timer
+        # print('log_response: after if')
+
+        return json.dumps({'status': 'ok'})
 
     def log_request(self, json_request: str) -> "json":
         request = json.loads(json_request)
@@ -525,62 +559,84 @@ class RaftNode:
             "ack": ack,
             "success": success,
         }
-        self.__send_request(response, "log_response", leader_id)
+        # print('before send log response')
+        # print(f'leader id type {type(leader_id)}')
+        # print(f'leader id {leader_id}')
+        # print(f'response {response}')
+        Thread(target=self.__send_request, args=[response, "log_response", Address(leader_id['ip'], leader_id['port'])]).start()
+        # print('after log response')
+        return json.dumps({'status': 'ok'})
     
     def append_entries(self, prefix_len, leader_commit, suffix):
-        print('here 4 -------------------')
+        # print('here 4 -------------------')
         if len(suffix) > 0 and len(self.log) > prefix_len:
+            # print('before index ------------------------')
             index = min(len(self.log), prefix_len + len(suffix) - 1)
-            if self.log[index][RaftNode.NodeType.LOG_TERM_IDX] != suffix[index - prefix_len][RaftNode.NodeType.LOG_TERM_IDX]:
-                print("masuk if 1")
+            # print('after index ------------------------')
+            if self.log[index][RaftNode.LOG_TERM_IDX] != suffix[index - prefix_len][RaftNode.LOG_TERM_IDX]:
+                # print("masuk if 1")
                 self.log = self.log[:prefix_len - 1]
             
+            # print("otw masuk if 2")
             if prefix_len + len(suffix) > len(self.log):
-                print("masuk if 2")
+                # print("masuk if 2")
                 for i in range(len(self.log), len(suffix) - 1):
                     self.log.append(suffix[i])
-            print('here 5 -------------------')
+            # print('here 5 -------------------')
             # TODO: need to declare self.commit length on follower
-            if leader_commit > len(self.commit_length):
-                print("masuk print 3")
+            if len(leader_commit) > self.commit_length:
+                # print("masuk print 3")
                 for i in range(len(self.log) - prefix_len, len(suffix) - 1):
                     self.log.append(suffix[i])
-            print('here 6 -------------------')
-            if leader_commit > self.commit_length:
-                print('here 7 -------------------')
-                for i in range(self.commit_length, leader_commit - 1):
-                    print()
+            # print('here 6 -------------------')
+            # print(type(leader_commit))
+            # print(f'leader commit: {leader_commit}')
+            # print(f'commit length: {self.commit_length}')
+            if len(leader_commit) > self.commit_length:
+                # print('here 7 -------------------')
+                for i in range(self.commit_length, len(leader_commit) - 1):
+                    # print()
                     # deliver log[i].msg to the application
-                    command = self.log[i][RaftNode.NodeType.LOG_MSG_IDX]
+                    command = self.log[i][RaftNode.LOG_MSG_IDX]
 
                     request = {
                         'command': command[:7] if 'dequeue' in command else command[:5],
                         'params': command[:9] if 'dequeue' in command else command[:7]
                     }
 
-                    print(f"Committing log {request} to application")
+                    # print(f"Committing log {request} to application")
 
                     self.commit(json.dumps(request))
-                    self.commit_length == leader_commit
+                    self.commit_length == len(leader_commit)
     
     def __acks_(self, length):
-        return len([i for i in range(len(self.acked_length)) if self.acked_length[i] >= length])
+        return len([i for i in range(len(self.acked_length)) if self.acked_length[i][1] >= length])
     
     def commit_log_entries(self):
-        min_acks = ceil(len(self.cluster_addr_list) + 1 / 2)
+        # print('entering commit log entries')
+        min_acks = ceil((len(self.cluster_addr_list) + 1) / 2)
+        # print(f"min_acks: {min_acks}")
+        # print(f"self.log: {self.log}")
         ready = [i for i in range(len(self.log)) if self.__acks_(i) >= min_acks]
-        if ready != [] and max(ready) > self.commit_length and self.log[max(ready) - 1][1] == self.election_term:
-            for i in range(self.commit_length, max(ready)):
+        
+        # print(f"ready: {ready}")
+        # print("before if ready")
+        # print(f'commit length {self.commit_length}')
+        if ready != [] and max(ready) + 1 > self.commit_length and self.log[max(ready)][1] == self.election_term:
+            # print("after if ready")
+            for i in range(self.commit_length, max(ready) + 1):
                 # deliver log[i].msg to the application
-                command = self.log[i][RaftNode.NodeType.LOG_IDX_MSG]
+                command = self.log[i][RaftNode.LOG_MSG_IDX]
                 
                 request = {
                     'command': command[:7] if 'dequeue' in command else command[:5],
                     'params': command[:9] if 'dequeue' in command else command[:7]
                 }
-
+                # print('before commit in commit log entries')
                 self.commit(json.dumps(request))
+                # print("after self.commit(json.dumps(request))")
                 
-            self.commit_length = max(ready)
+            self.commit_length = max(ready) + 1
+            # print("commit length: ", self.commit_length)
                 
     
