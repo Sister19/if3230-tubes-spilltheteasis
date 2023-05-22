@@ -11,15 +11,13 @@ def start_communication(addr: Address, contact_node_addr: Address):
     print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Start communicating to server {contact_node_addr}")
     server = ServerProxy(f'http://{contact_node_addr.ip}:{contact_node_addr.port}')
 
-    print(server.system.listMethods())
-
     while True:
         command = input('Command: ')
         
-        if command == 'exit':
+        if 'exit' in command:
             exit()
-        if command == 'help':
-            print('Commands: queue("[content]"), dequeue(), request_log(), exit, help') 
+        if 'help' in command:
+            print('Commands: queue("[content]"), dequeue(), request_log(), exit(), help()') 
 
         if 'queue' in command or 'dequeue' in command or 'request_log' in command:
             request = {
@@ -28,16 +26,20 @@ def start_communication(addr: Address, contact_node_addr: Address):
                 'command': command,
             }
             request = json.dumps(request)
-            print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Start sending commands to server")
+            print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Start sending {command} to server")
             try: 
-                print(type(request))
                 response = server.execute(request)
+                response = json.loads(response)
             except Exception as e:
                 # print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Server is not responding")
                 print(e)
                 continue
 
-            # print(response)
+            if response["status"] == "ok":
+                print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Successfully sent {command} to server")
+                if 'request_log' in command:
+                    for entry in response["log"]:
+                        print(entry)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
