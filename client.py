@@ -8,8 +8,10 @@ import time
 # from app           import MessageQueue
 
 def start_communication(addr: Address, contact_node_addr: Address):
-    print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] start communicating to server {contact_node_addr}")
+    print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Start communicating to server {contact_node_addr}")
     server = ServerProxy(f'http://{contact_node_addr.ip}:{contact_node_addr.port}')
+
+    print(server.system.listMethods())
 
     while True:
         command = input('Command: ')
@@ -17,17 +19,25 @@ def start_communication(addr: Address, contact_node_addr: Address):
         if command == 'exit':
             exit()
         if command == 'help':
-            print('Commands: exit, help, get, put, delete, list') 
+            print('Commands: queue("[content]"), dequeue(), request_log(), exit, help') 
 
-        request = {
-            'node_id': addr,
-            'command': command,
-        }
-        print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Start sending commands to server")
+        if 'queue' in command or 'dequeue' in command or 'request_log' in command:
+            request = {
+                'request_addr': addr,
+                'node_id': contact_node_addr,
+                'command': command,
+            }
+            request = json.dumps(request)
+            print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Start sending commands to server")
+            try: 
+                print(type(request))
+                response = server.execute(request)
+            except Exception as e:
+                # print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Server is not responding")
+                print(e)
+                continue
 
-        response = server.execute(request)
-
-        print(response)
+            # print(response)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
