@@ -1,0 +1,22 @@
+python3 server.py loca
+lhost 15000 localhost 15005
+Starting Raft Server at localhost:15000
+Error: timed out
+Failed to send request to localhost:15005
+Failed to contact leader node
+Traceback (most recent call last):
+  File "server.py", line 26, in <module>
+    start_serving(server_addr, contact_addr)
+  File "server.py", line 12, in start_serving
+    server.register_instance(RaftNode(MessageQueue(), addr, contact_node_addr))
+  File "/home/ranjabi/Downloads/if3230-tubes-spilltheteasis/lib/raft.py", line 78, in __init__
+    self.__try_to_apply_membership(contact_addr)
+  File "/home/ranjabi/Downloads/if3230-tubes-spilltheteasis/lib/raft.py", line 233, in __try_to_apply_membership
+    self.sent_length.append([addr, response["sent_length"][i]])
+IndexError: list index out of range
+Error: [Errno 111] Connection refused
+Failed to send request to localhost:15001
+Error: timed out
+Failed to send request to localhost:15002
+Error: [Errno 104] Connection reset by peer
+Failed to send request to localhost:15003

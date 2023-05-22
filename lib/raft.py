@@ -14,11 +14,11 @@ import random
 
 class RaftNode:
     HEARTBEAT_INTERVAL      = 1
-    ELECTION_TIMEOUT_MIN    = 5
-    ELECTION_TIMEOUT_MAX    = 10
-    HEARTBEAT_TIMEOUT_MIN   = 2
-    HEARTBEAT_TIMEOUT_MAX   = 5
-    RPC_TIMEOUT             = 0.5
+    ELECTION_TIMEOUT_MIN    = 45
+    ELECTION_TIMEOUT_MAX    = 90
+    HEARTBEAT_TIMEOUT_MIN   = 30
+    HEARTBEAT_TIMEOUT_MAX   = 60
+    RPC_TIMEOUT             = 10
 
     LOG_MSG_IDX             = 0
     LOG_TERM_IDX            = 1
@@ -79,7 +79,7 @@ class RaftNode:
 
     # Internal Raft Node methods
     def __print_log(self, text: str):
-        print(f"[{self.address}] [{time.strftime('%H:%M:%S')}] {text}")
+        print(f"{text}")
 
     def __initialize_as_leader(self):
         self.__print_log("Initialize as leader node...")
@@ -182,6 +182,7 @@ class RaftNode:
         # TODO : Send periodic heartbeat
         while self.type == RaftNode.NodeType.LEADER:
             self.__print_log("[Leader] Sending heartbeat...")
+            self.__print_log(f'[Leader] {self.log}')
             for addr in self.cluster_addr_list:
                 addr = Address(addr["ip"], addr["port"])
                 if addr != self.address:
@@ -201,7 +202,7 @@ class RaftNode:
                 self.__print_log("Heartbeat not received")
                 self.__initialize_as_candidate()
                 return
-            # self.__print_log(f'[Follower] {self.log}')
+            self.__print_log(f'[Follower] {self.log}')
             await asyncio.sleep(RaftNode.HEARTBEAT_INTERVAL)
     
     def __heartbeat_timeout(self):
@@ -211,7 +212,12 @@ class RaftNode:
         redirected_addr = contact_addr
         response = self.__send_request(self.address, "apply_membership", redirected_addr)
 
-        while response is None or response["status"] != "success":
+        while response is None:
+            self.__print_log("Failed to contact leader node")
+            response = self.__send_request(self.address, "apply_membership", redirected_addr)
+            time.sleep(1)
+
+        while response["status"] != "success":
             redirected_addr = Address(response["address"]["ip"], response["address"]["port"])
             response        = self.__send_request(self.address, "apply_membership", redirected_addr)
 
@@ -394,7 +400,8 @@ class RaftNode:
             self.__print_log("Election term is not valid")
             self.__initialize_as_follower()
             self.__cancel_election_timer()
-            return
+
+        return json.dumps({"status": "ok"})
         
     # Client RPCs
     def execute(self, json_request: str) -> "json":
@@ -466,8 +473,10 @@ class RaftNode:
         }
 
         if self.type == RaftNode.NodeType.LEADER:
+            self.__print_log(f"==================================")
             self.__print_log(f"[Leader] Received request broadcast msg from {request_addr}")
             self.__print_log(f"[Leader] Broadcasting request to all nodes")
+            self.__print_log(f"==================================")
 
             # append the record (msg, term) to the log
             self.log.append((msg, self.election_term))
