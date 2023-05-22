@@ -30,16 +30,18 @@ def start_communication(addr: Address, contact_node_addr: Address):
             try: 
                 response = server.execute(request)
                 response = json.loads(response)
+
+                if response["status"] == "ok":
+                    print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Successfully sent {command} to server")
+                    if 'request_log' in command:
+                        for entry in response["log"]:
+                            print(entry)
             except Exception as e:
                 # print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Server is not responding")
                 print(e)
                 continue
 
-            if response["status"] == "ok":
-                print(f"[{addr.ip}:{addr.port}] [{time.strftime('%H:%M:%S')}] [Client] Successfully sent {command} to server")
-                if 'request_log' in command:
-                    for entry in response["log"]:
-                        print(entry)
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
